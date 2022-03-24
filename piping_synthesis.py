@@ -13,8 +13,6 @@ elif (spec := importlib.util.find_spec(name)) is not None:
     print(f"{name!r} has been imported")
 else:
     print(f"can't find the {name!r} module")
-    print(f"installation {name!r} is proceeding...")
-    ! pip install name
     
 import numpy as np
 import pandas as pd
