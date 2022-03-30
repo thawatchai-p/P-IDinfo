@@ -31,7 +31,7 @@ def dwg_to_dxf():
     
     ''' Convert the DWG file into DXF file format '''
     
-    DXF_folder = 'DXF'
+    dxf_folder = 'DXF'
     
     if not os.path.exists(DXF_folder):
         os.makedirs(DXF_folder)
@@ -52,7 +52,7 @@ def dwg_to_dxf():
 
     TEIGHA_PATH = "C:/Program Files (x86)/ODA/Teigha File Converter 4.3.2/TeighaFileConverter.exe"
     INPUT_FOLDER = "./DWG" # all drawing file must locate in this folder
-    OUTPUT_FOLDER = DXF_folder
+    OUTPUT_FOLDER = dxf_folder
     OUTVER = "ACAD2018"
     OUTFORMAT = "DXF"
     RECURSIVE = "1"
@@ -127,7 +127,7 @@ def cleaned_df(text, text_df):
     
     # Filter the complete line
     pat_full = r'\-[A-Z0-9]{6,8}\-[A-Z]' # -000000[00]-X
-    linefull_idx = alltexttable[alltexttable['Text Name'].str.contains(pat_full)].reset_index(drop=True)
+    linefull_idx = text_df[text_df['Text Name'].str.contains(pat_full)].reset_index(drop=True)
     linefull_idx = linefull_idx.assign(Type = 'F')
     linefull_idx.sort_values('Text Rotation', ascending=[True], inplace=True)
     linefull_idx = linefull_idx.reset_index(drop=True)
@@ -135,9 +135,9 @@ def cleaned_df(text, text_df):
     # Filter the partial incomplete line pattern 1
     pat_pref_1 = r'\-[A-Z]{1,4}\-[0-9]{6,8}$' # -000000[00]
     pat_suff_1 = r'^\-[A-Z][0-9]' # -X0
-    linepart_pref_1 = alltexttable[alltexttable['Text Name'].str.contains(pat_pref_1)]
+    linepart_pref_1 = text_df[text_df['Text Name'].str.contains(pat_pref_1)]
     linepart_pref_1 = linepart_pref_1.assign(Type = 'P')
-    linepart_suff_1 = alltexttable[alltexttable['Text Name'].str.contains(pat_suff_1)]
+    linepart_suff_1 = text_df[text_df['Text Name'].str.contains(pat_suff_1)]
     linepart_suff_1 = linepart_suff_1.assign(Type = 'S')
     linepart_idx_1 = pd.concat([linepart_pref_1, linepart_suff_1], axis=0, ignore_index=True, verify_integrity=True)
     linepart_idx_1 = linepart_idx_1.assign(Length = linepart_idx_1['Text Name'].str.len())
@@ -150,9 +150,9 @@ def cleaned_df(text, text_df):
     # Filter the partial incomplete line pattern 2
     pat_pref_2 = r'\-[A-Z]{1,4}\-[0-9]{6,8}\-$' # -000000[00]-
     pat_suff_2 = r'^[A-Z][0-9]' # X0
-    linepart_pref_2 = alltexttable[alltexttable['Text Name'].str.contains(pat_pref_2)]
+    linepart_pref_2 = text_df[text_df['Text Name'].str.contains(pat_pref_2)]
     linepart_pref_2 = linepart_pref_2.assign(Type = 'P')
-    linepart_suff_2 = alltexttable[alltexttable['Text Name'].str.contains(pat_suff_2)]
+    linepart_suff_2 = text_df[text_df['Text Name'].str.contains(pat_suff_2)]
     linepart_suff_2 = linepart_suff_2.assign(Type = 'S')
     linepart_idx_2 = pd.concat([linepart_pref_2, linepart_suff_2], axis=0, ignore_index=True, verify_integrity=True)
     linepart_idx_2 = linepart_idx_2.assign(Length = linepart_idx_2['Text Name'].str.len())
@@ -202,7 +202,7 @@ def cleaned_df(text, text_df):
     line_up_right_y = []
     
     for t in text:
-        if(t.dxf.text in lineList['Text Name'].to_list()):
+        if(t.dxf.text in line_list['Text Name'].to_list()):
             bbox = ezdxf.path.bbox(text2path.make_paths_from_entity(t))
             line_idx.append(t)
             line_name.append(t.dxf.text)
@@ -218,7 +218,7 @@ def cleaned_df(text, text_df):
 
     # Merge the lineList and lineExt by 'Text Name' columms
     line_all = pd.merge(left=line_list, right=line_ext, on='Text ID', suffixes=('', '_remove'), validate='one_to_one')
-    line_all.drop([i for i in lineAll.columns if 'remove' in i], axis=1, inplace=True) # remove the duplicate columns
+    line_all.drop([i for i in line_all.columns if 'remove' in i], axis=1, inplace=True) # remove the duplicate columns
     
     # Clean the final database before save file 
     for i in line_all.index:
@@ -294,9 +294,8 @@ def info_extract_pid(name: Path):
 # set your working directory:
 DIR = Path("D:\\ENQA\\Training\\VISTEC\\[2021] Data Science Lv2\\Use Case Project").expanduser()
 
+# Testing!!!
 # Ensure the working directory before executing!!!
 # All drawing file must be located in the 'DWG' sub-folder
 
-infoExtractPID(DIR)
-
-# Don't forget to check the working directory before running the above command by os.getcwd()
+info_extract_pid(DIR)
