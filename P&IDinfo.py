@@ -21,12 +21,13 @@ import gc
 import matplotlib
 import os
 import pandas as pd
+from pathlib import Path
 import regex as re
 import subprocess
 import sys
 
 # Check whether if the output folder is create
-def convertDWGtoDXF():
+def dwg_to_dxf():
     
     ''' Convert the DWG file into DXF file format '''
     
@@ -64,28 +65,28 @@ def convertDWGtoDXF():
     # Run
     subprocess.run(cmd, shell=True)
     
-def getListOfFiles(dirName):
+def get_file_list(dir_name):
     
     ''' For the given path, get the List of all files in the directory tree '''
     
     # create a list of file and sub directories 
     # names in the given directory 
-    listOfFile = os.listdir(dirName)
-    allFiles = []
+    list_of_file = os.listdir(dir_name)
+    all_files = []
     
     # Iterate over all the entries
-    for entry in listOfFile:
+    for entry in list_of_file:
         # Create full path
-        fullPath = os.path.join(dirName, entry)
+        full_path = os.path.join(dir_name, entry)
         # If entry is a directory then get the list of files in this directory 
-        if os.path.isdir(fullPath):
-            allFiles = allFiles + getListOfFiles(fullPath)
+        if os.path.isdir(full_path):
+            all_files = all_files + get_file_list(full_path)
         else:
-            allFiles.append(fullPath)
+            all_files.append(full_path)
                 
-    return allFiles
+    return all_files
 
-def connectMSP(filename):
+def get_text_entities(filename):
     
     ''' Open DXF file from input DWG file, and then setup and query the model space of text object from DXF file before extraction '''
     
@@ -99,28 +100,28 @@ def connectMSP(filename):
         sys.exit(2)
     
     read_file = ezdxf.readfile(filename) 
-    model_space = read_file.modelspace()
-    text = model_space.query("TEXT")
+    msp = read_file.modelspace()
+    text = msp.query("TEXT")
     
     return text
 
-def importLineDf(text):
+def text_df(text):
     
     ''' Convert all text objects into dataframe and Filter out the non-piping text object '''
     
     # Convert the text object into dataframe
-    alltext = [t.dxf.text for t in text]
-    textid = [t for t in text]
-    textline = [t.dxf.text for t in text]
+    all_text = [t.dxf.text for t in text]
+    text_id = [t for t in text]
+    text_name = [t.dxf.text for t in text]
     text_x = [t.dxf.insert[0] for t in text]
     text_y = [t.dxf.insert[1] for t in text]
-    textrot = [t.dxf.rotation for t in text]
-    textdict = {'Text ID':textid, 'Text Name':textline, 'Text X':text_x, 'Text Y':text_y, 'Text Rotation':textrot}
-    alltexttable = pd.DataFrame(textdict)
+    text_rot = [t.dxf.rotation for t in text]
+    text_dict = {'Text ID':text_id, 'Text Name':text_name, 'Text X':text_x, 'Text Y':text_y, 'Text Rotation':text_rot}
+    text_df = pd.DataFrame(text_dict)
     
-    return(alltexttable)
+    return(text_df)
 
-def cleanedLineDf(text, alltexttable):
+def cleaned_df(text, text_df):
     
     ''' Clean the import line dataframe into the proper and neat format '''
     
@@ -188,73 +189,76 @@ def cleanedLineDf(text, alltexttable):
     linepart_idx.set_index('index', inplace=True)
 
     # Append the complete and partial dataframe
-    lineList = pd.concat([linefull_idx,linepart_idx], axis=0, ignore_index=True, verify_integrity=True)
+    line_list = pd.concat([linefull_idx,linepart_idx], axis=0, ignore_index=True, verify_integrity=True)
 
     # Extract the text box into 'listExt' dataframe
-    lineIdx = []
-    lineName = []
-    lineWidth = []
-    lineHeight = []
-    lineLowLeftX = []
-    lineLowLeftY = []
-    lineUpRightX = []
-    lineUpRightY = []
+    line_idx = []
+    line_name = []
+    line_width = []
+    line_height = []
+    line_low_left_x = []
+    line_low_left_y = []
+    line_up_right_x = []
+    line_up_right_y = []
     
     for t in text:
         if(t.dxf.text in lineList['Text Name'].to_list()):
             bbox = ezdxf.path.bbox(text2path.make_paths_from_entity(t))
-            lineIdx.append(t)
-            lineName.append(t.dxf.text)
-            lineWidth.append(bbox.size.x)
-            lineHeight.append(bbox.size.y)
-            lineLowLeftX.append(bbox.extmin[0])
-            lineLowLeftY.append(bbox.extmin[1])
-            lineUpRightX.append(bbox.extmax[0])
-            lineUpRightY.append(bbox.extmax[1])
+            line_idx.append(t)
+            line_name.append(t.dxf.text)
+            line_width.append(bbox.size.x)
+            line_height.append(bbox.size.y)
+            line_low_left_x.append(bbox.extmin[0])
+            line_low_left_y.append(bbox.extmin[1])
+            line_up_right_x.append(bbox.extmax[0])
+            line_up_right_y.append(bbox.extmax[1])
 
-    lineExt = pd.DataFrame(list(zip(lineIdx, lineName, lineWidth, lineHeight, lineLowLeftX, lineLowLeftY, lineUpRightX, lineUpRightY)),
+    line_ext = pd.DataFrame(list(zip(line_idx, line_name, line_width, line_height, line_low_left_x, line_low_left_y, line_up_right_x, line_up_right_y)),
                            columns=['Text ID','Text Name','Text Width','Text Height','LowerLeft X','LowerLeft Y','UpperRight X','UpperRight Y'])
 
     # Merge the lineList and lineExt by 'Text Name' columms
-    lineAll = pd.merge(left=lineList, right=lineExt, on='Text ID', suffixes=('', '_remove'), validate='one_to_one')
-    lineAll.drop([i for i in lineAll.columns if 'remove' in i], axis=1, inplace=True) # remove the duplicate columns
+    line_all = pd.merge(left=line_list, right=line_ext, on='Text ID', suffixes=('', '_remove'), validate='one_to_one')
+    line_all.drop([i for i in lineAll.columns if 'remove' in i], axis=1, inplace=True) # remove the duplicate columns
     
     # Clean the final database before save file 
-    for i in lineAll.index:
+    for i in line_all.index:
         # Clean the text rotation
-        if (-5 < lineAll.loc[i,'Text Rotation'] < 5):
-            lineAll.loc[i,'Text Rotation'] = 0
-        elif (85 < lineAll.loc[i,'Text Rotation'] < 95):
-            lineAll.loc[i,'Text Rotation'] = 90
+        if (-5 < line_all.loc[i,'Text Rotation'] < 5):
+            line_all.loc[i,'Text Rotation'] = 0
+        elif (85 < line_all.loc[i,'Text Rotation'] < 95):
+            line_all.loc[i,'Text Rotation'] = 90
 
         # Remove trailing text and whitespace in Text name
-        if (bool(re.search(r'(?<=\s{2}).*', lineAll.loc[i,'Text Name']))):
-            lineAll.loc[i,'Text Name'] = re.sub(r'(?<=\s{2}).*','', lineAll.loc[i,'Text Name']).rstrip()
+        if (bool(re.search(r'(?<=\s{2}).*', line_all.loc[i,'Text Name']))):
+            line_all.loc[i,'Text Name'] = re.sub(r'(?<=\s{2}).*','', line_all.loc[i,'Text Name']).rstrip()
         else:
-            lineAll.loc[i,'Text Name'] = lineAll.loc[i,'Text Name'].rstrip()
+            line_all.loc[i,'Text Name'] = line_all.loc[i,'Text Name'].rstrip()
     
-    return lineAll
+    return line_all
 
-def infoExtractPID():
+def info_extract_pid(name: Path):
     
     ''' Extract the information from the DWG file in the folder, and then save the relevant information into *.csv file '''
     
+    # Set working directory, which there is sub-folder name 'DWG' consists of *.dwg files
+    os.chdir(name)
+        
     # Check whether if dxf files have been already converted into .DXF files
     print('Have all converted files located in the "DXF" Folder (y/n): ')
     decision = input()
     
     if decision == 'n':
-        convertDWGtoDXF()
+        dwg_to_dxf()
     
     print('DWG files have been converted into DXF files.','\n')
     print('Information extraction is proceeding.')
     
-    list_files = getListOfFiles('DXF')
+    list_files = get_file_list('DXF')
     
     for filename in list_files:
-        text = connectMSP(filename)
-        all_line_df = importLineDf(text)
-        clean_df = cleanedLineDf(text, all_line_df)
+        text = get_text_entities(filename)
+        all_line_df = text_df(text)
+        clean_df = cleaned_df(text, all_line_df)
         
         # Add the filename
         listname = re.split(r'\\|\.', filename)
@@ -262,7 +266,7 @@ def infoExtractPID():
         clean_df = clean_df.assign(Filename = file)
         
         # Define related parameters and check the existing save folder
-        listOfFolders = os.listdir('.\\DXF')
+        list_folders = os.listdir('.\\DXF')
         save_folder = '.\\CSV_Output'
         trim_char = ['','DXF',file,'dxf']
     
@@ -270,7 +274,7 @@ def infoExtractPID():
             os.makedirs(save_folder)
         
         # Save file
-        if bool(len(listOfFolders) != 0):
+        if bool(len(list_folders) != 0):
             prior_folder = [folder for folder in listname if folder not in trim_char]
             prior_folder = "".join(prior_folder)
         
@@ -287,10 +291,12 @@ def infoExtractPID():
     gc.collect()
     
 # Testing!!!
+# set your working directory:
+DIR = Path("D:\\ENQA\\Training\\VISTEC\\[2021] Data Science Lv2\\Use Case Project").expanduser()
+
 # Ensure the working directory before executing!!!
 # All drawing file must be located in the 'DWG' sub-folder
 
-infoExtractPID()
+infoExtractPID(DIR)
 
 # Don't forget to check the working directory before running the above command by os.getcwd()
-# Example: os.chdir('D:\\ENQA\\Training\\VISTEC\\[2021] Data Science Lv2\\Use Case Project')
