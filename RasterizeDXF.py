@@ -6,9 +6,12 @@ from ezdxf.addons.drawing import matplotlib
 from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
 from ezdxf.addons.drawing.properties import Properties, LayoutProperties
 from ezdxf.lldxf.const import DXFAttributeError
+from ezdxf.tools import fonts
 import gc
+import matplotlib.pyplot as plt
 import os
 from pathlib import Path
+from PIL import Image
 import regex as re
 import sys
 
@@ -33,7 +36,7 @@ def get_file_list(dir_name):
                 
     return all_files
   
-def get_all_entities(filename):
+def get_modelspace(filename):
     
     ''' Load, and verify the DXF file, and convert all entities in the modelspace  '''
     
@@ -57,13 +60,17 @@ def get_all_entities(filename):
     doc = ezdxf.readfile(filename)
     msp = doc.modelspace()
     
-    # Change the color of dxf object into black
+    # Change the color of all dxf objects in the same layer properties (ACI = 256)
     for e in msp:
         try:
-            e.dxf.color = 7
+            e.dxf.color = 256
         except DXFAttributeError:
             # Attribute is not present
             pass
+    
+    # Change the layer color to black (ACI = 7)
+    for layer in doc.layers:
+        layer.color = 7
         
     return msp
  
@@ -83,7 +90,7 @@ def rasterize(name: Path, filetype='png', dpi=720):
     bgcol = '#FFFFFF' # for white background: ('#FFFFFF00') to get a transparent background and a black foreground color (ACI=7)
     
     for filename in list_files:
-        entities = get_all_entities(filename)
+        entities = get_modelspace(filename)
             
         # Add the filename
         listname = re.split(r'\\|\.', filename)
@@ -107,7 +114,12 @@ def rasterize(name: Path, filetype='png', dpi=720):
         else:
             saveinfo_path = save_folder+'\\'+file+'.'+filetype
 
-        matplotlib.qsave(entities, filename=saveinfo_path, bg='#FFFFFF', dpi=dpi, config=config)
+        matplotlib.qsave(entities, filename=saveinfo_path, bg='#FFFFFF', fg='#000000', dpi=dpi, config=config)
+        
+        # Adjust the gray scale color
+        with Image.open(saveinfo_path) as img:
+            img = img.convert('L')
+            img.save(saveinfo_path)
         
         print('Saving location of file:', saveinfo_path)
     
