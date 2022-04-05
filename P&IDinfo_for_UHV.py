@@ -88,7 +88,7 @@ def get_file_list(dir_name):
 
     return all_files
  
-def get_text_entities(filename):
+def get_modelspace(filename):
     
     ''' Open DXF file from input DWG file, and then setup and query the model space of text object from DXF file before extraction '''
     
@@ -101,82 +101,174 @@ def get_text_entities(filename):
         print(f"Invalid or corrupted DXF file.")
         sys.exit(2)
     
-    doc = ezdxf.readfile(sample_file)
+    doc = ezdxf.readfile(filename)
     model_space = doc.modelspace()
-    inserts = model_space.query("INSERT")
-    
-    return insert
+        
+    return model_space
 
-def text_df(insert):
+def insert_df(msp):
     
-    ''' Convert all text objects into dataframe and Filter out the non-piping text object '''
+    ''' Function used for collecting all information and then create the text dataframe from insert entities '''
     
-    # Convert the text object into dataframe
-    text_id = [insert for insert in inserts if insert.dxf.name.startswith('Pipeline')]
-    text_name = [attrib.dxf.text for insert in inserts if insert.dxf.name.startswith('Pipeline') for attrib in insert.attribs]
-    text_x = [insert.dxf.insert[0] for insert in inserts if insert.dxf.name.startswith('Pipeline')]
-    text_y = [insert.dxf.insert[1] for insert in inserts if insert.dxf.name.startswith('Pipeline')]
-    text_rot = [float(insert.dxf.rotation) for insert in inserts if insert.dxf.name.startswith('Pipeline')]
-    text_dict = {'Text ID':text_id, 'Text Name':text_name, 'Text X':text_x, 'Text Y':text_y, 'Text Rotation':text_rot}
-    text_df = pd.DataFrame(text_dict)
-    text_df = text_df.assign(Type = 'F')
+    # Define entities list for verification with criteria condition
+    insert_id = [insert for insert in msp.query("INSERT") if insert.dxf.name.startswith('Pipeline')]
     
-    return(text_df)
+    # Check the entities whether if there are any matches with the criteria condition 
+    if len(insert_id) == 0:
+        insert_all = pd.DataFrame(columns=['Text ID','Text Name','Text Width','Text Height','LowerLeft X','LowerLeft Y','UpperRight X','UpperRight Y'])
+        pass
+    else:
+        inserts = msp.query("INSERT")
+        insert_name = [attrib.dxf.text for insert in inserts if insert.dxf.name.startswith('Pipeline') for attrib in insert.attribs]
+        insert_x = [insert.dxf.insert[0] for insert in inserts if insert.dxf.name.startswith('Pipeline')]
+        insert_y = [insert.dxf.insert[1] for insert in inserts if insert.dxf.name.startswith('Pipeline')]
+        insert_rot = [float(insert.dxf.rotation) for insert in inserts if insert.dxf.name.startswith('Pipeline')]
+        insert_dict = {'Text ID':insert_id, 'Text Name':insert_name, 'Text X':insert_x, 'Text Y':insert_y, 'Text Rotation':insert_rot}
+        insert_df = pd.DataFrame(insert_dict)
+        insert_df = insert_df.assign(Type = 'F')
+
+        # Extract the bounding box dimension into 'Ext' dataframe
+        insert_idx = []
+        insert_text = []
+        insert_width = []
+        insert_height = []
+        insert_low_left_x = []
+        insert_low_left_y = []
+        insert_up_right_x = []
+        insert_up_right_y = []
+
+        for insert in inserts:
+            if(insert.dxf.name.startswith('Pipeline')):
+                for attrib in insert.attribs:
+                    bbox = ezdxf.path.bbox(text2path.make_paths_from_entity(attrib))
+                    insert_idx.append(insert)
+                    insert_text.append(attrib.dxf.text)
+                    insert_width.append(bbox.size.x)
+                    insert_height.append(bbox.size.y)
+                    insert_low_left_x.append(bbox.extmin[0])
+                    insert_low_left_y.append(bbox.extmin[1])
+                    insert_up_right_x.append(bbox.extmax[0])
+                    insert_up_right_y.append(bbox.extmax[1])
+
+                    insert_df_ext = pd.DataFrame(list(zip(insert_idx, insert_text, insert_width, insert_height, insert_low_left_x, insert_low_left_y, insert_up_right_x, insert_up_right_y)),
+                                                 columns=['Text ID','Text Name','Text Width','Text Height','LowerLeft X','LowerLeft Y','UpperRight X','UpperRight Y'])
+
+        # Merge the lineList and lineExt by 'Text Name' columms
+        insert_all = pd.merge(left=insert_df, right=insert_df_ext, on='Text ID', suffixes=('', '_remove'), validate='one_to_one')
+        insert_all.drop([i for i in insert_all.columns if 'remove' in i], axis=1, inplace=True) # remove the duplicate columns
+
+        # Clean the final dataframe before save file 
+        for i in insert_all.index:
+            # Clean the text rotation
+            if (-5 < insert_all.loc[i,'Text Rotation'] < 5):
+                insert_all.loc[i,'Text Rotation'] = 0
+            elif (85 < insert_all.loc[i,'Text Rotation'] < 95):
+                insert_all.loc[i,'Text Rotation'] = 90
+
+            # Remove trailing text and whitespace in Text name
+            if (bool(re.search(r'(?<=\s{2}).*', insert_all.loc[i,'Text Name']))):
+                insert_all.loc[i,'Text Name'] = re.sub(r'(?<=\s{2}).*','', insert_all.loc[i,'Text Name']).rstrip()
+            else:
+                insert_all.loc[i,'Text Name'] = insert_all.loc[i,'Text Name'].rstrip()
+
+    return insert_all
   
-def cleaned_df(insert, text_df):
+def text_df(msp):
+    
+    ''' Function used for collecting all information and then create the text dataframe from text entities '''
+    
+    # Define pattern for filters of text entities
+    pat_full = r'\-[0-9]{6,8}\-[A-Z]' # -000000[00]-X
+    pat_pref = r'\-[A-Z]{1,4}\-[0-9]{6,8}$' # -000000[00]
+    pat_suff = r'^\-[A-Z][0-9]' # -X0
 
-    ''' Clean the import line dataframe into the proper and neat format '''
+    # Create entities list for verification with criteria condition
+    text_full_id = [t for t in msp.query("TEXT") if bool(re.search(pat_full, t.dxf.text))]
+    text_pref_id = [t for t in msp.query("TEXT") if bool(re.search(pat_pref, t.dxf.text))]
+    text_suff_id = [t for t in msp.query("TEXT") if bool(re.search(pat_suff, t.dxf.text))]
 
-    # Extract the text box into 'list_ext' dataframe
-    line_idx = []
-    line_name = []
-    line_width = []
-    line_height = []
-    line_low_left_x = []
-    line_low_left_y = []
-    line_up_right_x = []
-    line_up_right_y = []
+    # Create the text dataframe
+    if (len(text_full_id) == 0) | (len(text_pref_id) == 0):
+        text_all = pd.DataFrame(columns=['Text ID','Text Name','Text Width','Text Height','LowerLeft X','LowerLeft Y','UpperRight X','UpperRight Y'])
+        pass
+    else:
+        text = msp.query("TEXT")
+        # Full piping pattern dataframe
+        text_full_name = [t.dxf.text for t in text if bool(re.search(pat_full, t.dxf.text))]
+        text_full_x = [t.dxf.insert[0] for t in text if bool(re.search(pat_full, t.dxf.text))]
+        text_full_y = [t.dxf.insert[1] for t in text if bool(re.search(pat_full, t.dxf.text))]
+        text_full_rot = [t.dxf.rotation for t in text if bool(re.search(pat_full, t.dxf.text))]
+        text_full_dict = {'Text ID':text_full_id, 'Text Name':text_full_name, 'Text X':text_full_x, 'Text Y':text_full_y, 'Text Rotation':text_full_rot}
+        text_full_df = pd.DataFrame(text_full_dict).assign(Type = 'F')
 
-    for insert in inserts:
-        if(insert.dxf.name.startswith('Pipeline')):
-            for attrib in insert.attribs:
-                bbox = ezdxf.path.bbox(text2path.make_paths_from_entity(attrib))
-                line_idx.append(insert)
-                line_name.append(attrib.dxf.text)
-                line_width.append(bbox.size.x)
-                line_height.append(bbox.size.y)
-                line_low_left_x.append(bbox.extmin[0])
-                line_low_left_y.append(bbox.extmin[1])
-                line_up_right_x.append(bbox.extmax[0])
-                line_up_right_y.append(bbox.extmax[1])
+        # Partial piping pattern dataframe
+        text_pref_name = [t.dxf.text for t in text if bool(re.search(pat_pref, t.dxf.text))]
+        text_pref_x = [t.dxf.insert[0] for t in text if bool(re.search(pat_pref, t.dxf.text))]
+        text_pref_y = [t.dxf.insert[1] for t in text if bool(re.search(pat_pref, t.dxf.text))]
+        text_pref_rot = [t.dxf.rotation for t in text if bool(re.search(pat_pref, t.dxf.text))]
+        text_pref_dict = {'Text ID':text_pref_id, 'Text Name':text_pref_name, 'Text X':text_pref_x, 'Text Y':text_pref_y, 'Text Rotation':text_pref_rot}
+        text_pref_df = pd.DataFrame(text_pref_dict).assign(Type = 'P')
 
-    line_ext = pd.DataFrame(list(zip(line_idx, line_name, line_width, line_height, line_low_left_x, line_low_left_y, line_up_right_x, line_up_right_y)),
-                            columns=['Text ID','Text Name','Text Width','Text Height','LowerLeft X','LowerLeft Y','UpperRight X','UpperRight Y'])
+        text_suff_name = [t.dxf.text for t in text if bool(re.search(pat_suff, t.dxf.text))]
+        text_suff_x = [t.dxf.insert[0] for t in text if bool(re.search(pat_suff, t.dxf.text))]
+        text_suff_y = [t.dxf.insert[1] for t in text if bool(re.search(pat_suff, t.dxf.text))]
+        text_suff_rot = [t.dxf.rotation for t in text if bool(re.search(pat_suff, t.dxf.text))]
+        text_suff_dict = {'Text ID':text_suff_id, 'Text Name':text_suff_name, 'Text X':text_suff_x, 'Text Y':text_suff_y, 'Text Rotation':text_suff_rot}
+        text_suff_df = pd.DataFrame(text_suff_dict).assign(Type = 'S')
 
-    # Add the filename
-    listname = re.split(r'\\|\.', sample_file)
-    filename = listname[-2]
-    line_ext = line_ext.assign(Filename = filename)
+        text_part_df = pd.concat([text_pref_df, text_suff_df], axis=0, ignore_index=True, verify_integrity=True)
+        text_part_df = text_part_df.assign(Distance = ( (text_part_df['Text X'])**2 + (text_part_df['Text Y'])**2 )**0.5)
+        text_part_df.sort_values('Distance', ascending=[True], inplace=True)
+        text_part_df.drop('Distance', axis=1, inplace=True)
+        text_part_df = text_part_df.assign(Type = 'P')
 
-    # Merge the lineList and lineExt by 'Text Name' columms
-    line_all = pd.merge(left=text_df, right=line_ext, on='Text ID', suffixes=('', '_remove'), validate='one_to_one')
-    line_all.drop([i for i in line_all.columns if 'remove' in i], axis=1, inplace=True) # remove the duplicate columns
+        # Append the complete and partial dataframe
+        text_df = pd.concat([text_full_df,text_part_df], axis=0, ignore_index=True, verify_integrity=True)
 
-    # Clean the final dataframe before save file 
-    for i in line_all.index:
-        # Clean the text rotation
-        if (-5 < line_all.loc[i,'Text Rotation'] < 5):
-            line_all.loc[i,'Text Rotation'] = 0
-        elif (85 < line_all.loc[i,'Text Rotation'] < 95):
-            line_all.loc[i,'Text Rotation'] = 90
+        # Extract the bounding box dimension into 'Ext' dataframe
+        text_idx = []
+        text_name = []
+        text_width = []
+        text_height = []
+        text_low_left_x = []
+        text_low_left_y = []
+        text_up_right_x = []
+        text_up_right_y = []
 
-        # Remove trailing text and whitespace in Text name
-        if (bool(re.search(r'(?<=\s{2}).*', line_all.loc[i,'Text Name']))):
-            line_all.loc[i,'Text Name'] = re.sub(r'(?<=\s{2}).*','', line_all.loc[i,'Text Name']).rstrip()
-        else:
-            line_all.loc[i,'Text Name'] = line_all.loc[i,'Text Name'].rstrip()
+        for t in text:
+            if(t.dxf.text in text_df['Text Name'].to_list()):
+                bbox = ezdxf.path.bbox(text2path.make_paths_from_entity(t))
+                text_idx.append(t)
+                text_name.append(t.dxf.text)
+                text_width.append(bbox.size.x)
+                text_height.append(bbox.size.y)
+                text_low_left_x.append(bbox.extmin[0])
+                text_low_left_y.append(bbox.extmin[1])
+                text_up_right_x.append(bbox.extmax[0])
+                text_up_right_y.append(bbox.extmax[1])
 
-    return line_all
+        text_df_ext = pd.DataFrame(list(zip(text_idx, text_name, text_width, text_height, text_low_left_x, text_low_left_y, text_up_right_x, text_up_right_y)),
+                                   columns=['Text ID','Text Name','Text Width','Text Height','LowerLeft X','LowerLeft Y','UpperRight X','UpperRight Y'])
+
+        # Merge the lineList and lineExt by 'Text Name' columms
+        text_all = pd.merge(left=text_df, right=text_df_ext, on='Text ID', suffixes=('', '_remove'), validate='one_to_one')
+        text_all.drop([i for i in text_all.columns if 'remove' in i], axis=1, inplace=True) # remove the duplicate columns
+
+        # Clean the final dataframe before save file 
+        for i in text_all.index:
+            # Clean the text rotation
+            if (-5 < text_all.loc[i,'Text Rotation'] < 5):
+                text_all.loc[i,'Text Rotation'] = 0
+            elif (85 < text_all.loc[i,'Text Rotation'] < 95):
+                text_all.loc[i,'Text Rotation'] = 90
+
+            # Remove trailing text and whitespace in Text name
+            if (bool(re.search(r'(?<=\s{2}).*', text_all.loc[i,'Text Name']))):
+                text_all.loc[i,'Text Name'] = re.sub(r'(?<=\s{2}).*','', text_all.loc[i,'Text Name']).rstrip()
+            else:
+                text_all.loc[i,'Text Name'] = text_all.loc[i,'Text Name'].rstrip()
+        
+    return text_all
   
 def info_extract_pid_uhv(name: Path):
     
@@ -198,19 +290,20 @@ def info_extract_pid_uhv(name: Path):
     list_files = get_file_list('DXF')
      
     for filename in list_files:
-        text = get_text_entities(filename)
-        all_line_df = text_df(text)
-        clean_df = cleaned_df(text, all_line_df)
+        msp = get_modelspace(filename)
+        insert_all = insert_df(msp)
+        text_all = text_df(msp)
+        piping_df = pd.concat([insert_all,text_all], axis=0, ignore_index=True, verify_integrity=True)
         
         # Add the filename
         listname = re.split(r'\\|\.', filename)
-        file = listname[-2]
-        clean_df = clean_df.assign(Filename = file)
-        
+        file_name = listname[-2]
+        piping_df = piping_df.assign(Filename = file_name)
+                
         # Define related parameters and check the existing save folder
         list_folders = os.listdir('.\\DXF')
-        save_folder = '.\\CSV_Output'
-        trim_char = ['','DXF',file,'dxf']
+        save_folder = '.\\CSV'
+        trim_char = ['','DXF',file_name,'dxf']
     
         if not os.path.exists(save_folder):
             os.makedirs(save_folder)
@@ -222,11 +315,11 @@ def info_extract_pid_uhv(name: Path):
         
             if not os.path.exists(save_folder+'\\'+prior_folder): # Check the whether if existing folder is created
                 os.makedirs(save_folder+'\\'+prior_folder)
-            saveinfo_path = save_folder+'\\'+prior_folder+'\\'+file+'.csv'
+            saveinfo_path = save_folder+'\\'+prior_folder+'\\'+file_name+'.csv'
         else:
-            saveinfo_path = save_folder+'\\'+file+'.csv'
+            saveinfo_path = save_folder+'\\'+file_name+'.csv'
         
-        clean_df.to_csv(saveinfo_path)
+        piping_df.to_csv(saveinfo_path)
         print('Saving location of file:', saveinfo_path)
         
     print('\n','Complete!!!')
