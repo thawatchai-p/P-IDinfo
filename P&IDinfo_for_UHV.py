@@ -115,7 +115,7 @@ def insert_df(msp):
     
     # Check the entities whether if there are any matches with the criteria condition 
     if len(insert_id) == 0:
-        insert_all = pd.DataFrame(columns=['Text ID','Text Name','Text Width','Text Height','LowerLeft X','LowerLeft Y','UpperRight X','UpperRight Y'])
+        insert_all = pd.DataFrame(columns=['Text ID','Text Name','Text X','Text Y','Text Rotation','Type','Text Width','Text Height','LowerLeft X','LowerLeft Y','UpperRight X','UpperRight Y'])
         pass
     else:
         inserts = msp.query("INSERT")
@@ -189,7 +189,7 @@ def text_df(msp):
 
     # Create the text dataframe
     if (len(text_full_id) == 0) | (len(text_pref_id) == 0):
-        text_all = pd.DataFrame(columns=['Text ID','Text Name','Text Width','Text Height','LowerLeft X','LowerLeft Y','UpperRight X','UpperRight Y'])
+        text_all = pd.DataFrame(columns=['Text ID','Text Name','Text X','Text Y','Text Rotation','Type','Text Width','Text Height','LowerLeft X','LowerLeft Y','UpperRight X','UpperRight Y'])
         pass
     else:
         text = msp.query("TEXT")
