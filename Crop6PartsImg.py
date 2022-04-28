@@ -66,7 +66,12 @@ def crop6parts_image(name: Path):
         listname = re.split(r'\\|\.', file_raster_location)
         filename = listname[-2]
         filename = re.sub('"','',filename)
-        filename = re.sub('/','_',filename)
+        filename = re.sub('\/','_',filename)
+        filename = re.sub('\&','_',filename)
+        
+        if len(filename) > 30:
+            filename = "".join(filename.split(' ')[0])
+            
         save_cropped_folder = '.\\Crop6PartsImg'
         trim_char = ['','PNG',filename,'png']
         
